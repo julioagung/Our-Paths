@@ -1,0 +1,19 @@
+{
+  "name": "starter-project-with-vite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "pwa:assets": "node generate-pwa-assets.js",
+    "pwa:test": "npm run build && npm run preview"
+  },
+  "devDependencies": {
+    "vite": "^6.2.0"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
+}

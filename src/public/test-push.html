@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Push Notification Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    h1 {
+      color: #1f2937;
+      margin-bottom: 8px;
+      font-size: 2rem;
+    }
+
+    p {
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+
+    .status {
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+
+    .status.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .status.info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    button {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-bottom: 12px;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .info-box {
+      background: #f9fafb;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 24px;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+
+    .info-box strong {
+      color: #1f2937;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔔 Push Notification Test</h1>
+    <p>Test push notification functionality</p>
+
+    <div id="status" class="status info">
+      Checking service worker status...
+    </div>
+
+    <button id="register-sw" class="btn-primary">
+      Register Service Worker
+    </button>
+
+    <button id="request-permission" class="btn-primary" disabled>
+      Request Notification Permission
+    </button>
+
+    <button id="subscribe" class="btn-primary" disabled>
+      Subscribe to Push
+    </button>
+
+    <button id="send-notification" class="btn-secondary" disabled>
+      Send Test Notification
+    </button>
+
+    <button id="unsubscribe" class="btn-danger" disabled>
+      Unsubscribe from Push
+    </button>
+
+    <div class="info-box">
+      <strong>Instructions:</strong><br>
+      1. Register service worker<br>
+      2. Request notification permission<br>
+      3. Subscribe to push notifications<br>
+      4. Send test notification<br>
+      <br>
+      <strong>Note:</strong> This requires HTTPS or localhost
+    </div>
+  </div>
+
+  <script>
+    let registration = null;
+    let subscription = null;
+
+    const statusEl = document.getElementById('status');
+    const registerBtn = document.getElementById('register-sw');
+    const permissionBtn = document.getElementById('request-permission');
+    const subscribeBtn = document.getElementById('subscribe');
+    const sendBtn = document.getElementById('send-notification');
+    const unsubscribeBtn = document.getElementById('unsubscribe');
+
+    function updateStatus(message, type = 'info') {
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+    }
+
+    // Check initial state
+    if (!('serviceWorker' in navigator)) {
+      updateStatus('❌ Service Worker not supported', 'error');
+    } else if (!('PushManager' in window)) {
+      updateStatus('❌ Push notifications not supported', 'error');
+    } else {
+      updateStatus('✅ Push notifications supported', 'success');
+    }
+
+    // Register service worker
+    registerBtn.addEventListener('click', async () => {
+      try {
+        registration = await navigator.serviceWorker.register('/sw.js');
+        updateStatus('✅ Service Worker registered', 'success');
+        permissionBtn.disabled = false;
+        registerBtn.disabled = true;
+      } catch (error) {
+        updateStatus('❌ Registration failed: ' + error.message, 'error');
+      }
+    });
+
+    // Request permission
+    permissionBtn.addEventListener('click', async () => {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        updateStatus('✅ Permission granted', 'success');
+        subscribeBtn.disabled = false;
+        permissionBtn.disabled = true;
+      } else {
+        updateStatus('❌ Permission denied', 'error');
+      }
+    });
+
+    // Subscribe to push
+    subscribeBtn.addEventListener('click', async () => {
+      try {
+        // For testing, we'll just enable notifications without VAPID
+        subscription = await registration.pushManager.getSubscription();
+        
+        if (!subscription) {
+          updateStatus('✅ Ready to receive notifications', 'success');
+        }
+        
+        sendBtn.disabled = false;
+        unsubscribeBtn.disabled = false;
+        subscribeBtn.disabled = true;
+      } catch (error) {
+        updateStatus('❌ Subscription failed: ' + error.message, 'error');
+      }
+    });
+
+    // Send test notification
+    sendBtn.addEventListener('click', async () => {
+      try {
+        await registration.showNotification('🎉 Test Notification', {
+          body: 'This is a test push notification from Our Paths!',
+          icon: '/images/logo.png',
+          badge: '/images/logo.png',
+          tag: 'test-notification',
+          data: {
+            url: '/#/'
+          },
+          actions: [
+            { action: 'view', title: 'View' },
+            { action: 'close', title: 'Close' }
+          ],
+          vibrate: [200, 100, 200]
+        });
+        updateStatus('✅ Test notification sent', 'success');
+      } catch (error) {
+        updateStatus('❌ Failed to send: ' + error.message, 'error');
+      }
+    });
+
+    // Unsubscribe
+    unsubscribeBtn.addEventListener('click', async () => {
+      try {
+        if (subscription) {
+          await subscription.unsubscribe();
+        }
+        updateStatus('✅ Unsubscribed', 'success');
+        sendBtn.disabled = true;
+        unsubscribeBtn.disabled = true;
+        subscribeBtn.disabled = false;
+      } catch (error) {
+        updateStatus('❌ Unsubscribe failed: ' + error.message, 'error');
+      }
+    });
+
+    // Check if already registered
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg) {
+        registration = reg;
+        updateStatus('✅ Service Worker already registered', 'success');
+        registerBtn.disabled = true;
+        
+        if (Notification.permission === 'granted') {
+          permissionBtn.disabled = true;
+          subscribeBtn.disabled = false;
+        } else {
+          permissionBtn.disabled = false;
+        }
+      }
+    });
+  </script>
+</body>
+</html>

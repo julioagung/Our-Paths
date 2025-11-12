@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PWA Icon Generator - Our Paths</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 800px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .upload-area {
+      border: 3px dashed #ddd;
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      margin-bottom: 30px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .upload-area:hover {
+      border-color: #667eea;
+      background: #f8f9ff;
+    }
+
+    .upload-area.dragover {
+      border-color: #667eea;
+      background: #f0f2ff;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    .preview-area {
+      display: none;
+      margin-bottom: 30px;
+    }
+
+    .preview-image {
+      max-width: 200px;
+      max-height: 200px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      margin: 0 auto 20px;
+      display: block;
+    }
+
+    .sizes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .size-item {
+      text-align: center;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .size-item:hover {
+      background: #e9ecef;
+      transform: translateY(-2px);
+    }
+
+    .size-item canvas {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .size-label {
+      font-size: 12px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .instructions {
+      background: #f8f9ff;
+      border-left: 4px solid #667eea;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+
+    .instructions h3 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    .instructions ol {
+      margin-left: 20px;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    .instructions li {
+      margin-bottom: 8px;
+    }
+
+    .alert {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      color: #856404;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .alert strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 PWA Icon Generator</h1>
+    <p class="subtitle">Generate all required PWA icons from your logo</p>
+
+    <div class="alert">
+      <strong>⚠️ Note:</strong>
+      This is a simple browser-based generator. For production, use professional tools like 
+      <a href="https://www.pwabuilder.com/imageGenerator" target="_blank">PWA Builder</a> or 
+      <a href="https://realfavicongenerator.net/" target="_blank">Real Favicon Generator</a>.
+    </div>
+
+    <div class="upload-area" id="uploadArea">
+      <div class="upload-icon">📁</div>
+      <h3>Click or drag your logo here</h3>
+      <p>PNG or JPG, recommended 512x512 or larger</p>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <div class="preview-area" id="previewArea">
+      <h3>Preview</h3>
+      <img id="previewImage" class="preview-image" alt="Preview">
+      
+      <h3 style="margin-top: 30px; margin-bottom: 15px;">Generated Icons</h3>
+      <div class="sizes-grid" id="sizesGrid"></div>
+
+      <button class="btn" id="downloadAllBtn">📥 Download All Icons as ZIP</button>
+      <button class="btn" id="downloadIndividualBtn" style="background: #6c757d;">📥 Download Individual Icons</button>
+    </div>
+
+    <div class="instructions">
+      <h3>📝 Instructions:</h3>
+      <ol>
+        <li>Upload your logo (PNG recommended, 512x512 or larger)</li>
+        <li>Preview will show all generated icon sizes</li>
+        <li>Click "Download All Icons" to get a ZIP file</li>
+        <li>Extract the ZIP to <code>src/public/images/</code></li>
+        <li>Run <code>npm run build</code> to test</li>
+        <li>Verify in Chrome DevTools > Application > Manifest</li>
+      </ol>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const previewArea = document.getElementById('previewArea');
+    const previewImage = document.getElementById('previewImage');
+    const sizesGrid = document.getElementById('sizesGrid');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const downloadIndividualBtn = document.getElementById('downloadIndividualBtn');
+
+    const iconSizes = [72, 96, 128, 144, 152, 192, 384, 512];
+    let sourceImage = null;
+    let generatedIcons = {};
+
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        handleFile(file);
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        handleFile(file);
+      }
+    });
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          sourceImage = img;
+          previewImage.src = e.target.result;
+          previewArea.style.display = 'block';
+          generateIcons();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function generateIcons() {
+      sizesGrid.innerHTML = '';
+      generatedIcons = {};
+
+      iconSizes.forEach(size => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Draw image centered and scaled
+        ctx.drawImage(sourceImage, 0, 0, size, size);
+
+        // Create container
+        const sizeItem = document.createElement('div');
+        sizeItem.className = 'size-item';
+        sizeItem.innerHTML = `
+          <canvas width="${size}" height="${size}"></canvas>
+          <div class="size-label">${size}x${size}</div>
+        `;
+
+        const displayCanvas = sizeItem.querySelector('canvas');
+        const displayCtx = displayCanvas.getContext('2d');
+        displayCtx.drawImage(sourceImage, 0, 0, size, size);
+
+        sizeItem.addEventListener('click', () => downloadIcon(canvas, size));
+
+        sizesGrid.appendChild(sizeItem);
+
+        // Store for batch download
+        generatedIcons[size] = canvas;
+      });
+    }
+
+    function downloadIcon(canvas, size) {
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `icon-${size}x${size}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    downloadIndividualBtn.addEventListener('click', () => {
+      Object.entries(generatedIcons).forEach(([size, canvas]) => {
+        setTimeout(() => downloadIcon(canvas, size), 100 * size);
+      });
+    });
+
+    downloadAllBtn.addEventListener('click', async () => {
+      if (typeof JSZip === 'undefined') {
+        alert('JSZip library not loaded. Please check your internet connection.');
+        return;
+      }
+
+      const zip = new JSZip();
+      const folder = zip.folder('pwa-icons');
+
+      // Add all icons to ZIP
+      for (const [size, canvas] of Object.entries(generatedIcons)) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve));
+        folder.file(`icon-${size}x${size}.png`, blob);
+      }
+
+      // Add README
+      const readme = `PWA Icons Generated
+==================
+
+These icons were generated for the Our Paths PWA.
+
+Files included:
+${iconSizes.map(size => `- icon-${size}x${size}.png`).join('\n')}
+
+Installation:
+1. Extract all files to: src/public/images/
+2. Run: npm run build
+3. Test: npm run preview
+4. Verify in Chrome DevTools > Application > Manifest
+
+For shortcuts and screenshots, create them manually or use:
+- https://www.pwabuilder.com/imageGenerator
+- https://realfavicongenerator.net/
+
+Generated on: ${new Date().toLocaleString()}
+`;
+      folder.file('README.txt', readme);
+
+      // Generate and download ZIP
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'our-paths-pwa-icons.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
