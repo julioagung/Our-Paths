@@ -252,13 +252,178 @@ self.addEventListener('sync', (event) => {
   console.log('[SW] Background sync:', event.tag);
   
   if (event.tag === 'sync-stories') {
-    event.waitUntil(syncStories());
+    event.waitUntil(syncPendingStories());
   }
 });
 
-async function syncStories() {
-  // Implement background sync logic here
-  console.log('[SW] Syncing stories...');
+async function syncPendingStories() {
+  console.log('[SW] Starting background sync...');
+  
+  try {
+    // Open IndexedDB
+    const db = await openDatabase();
+    
+    // Get pending operations
+    const pendingItems = await getAllQueueItems(db);
+    
+    if (pendingItems.length === 0) {
+      console.log('[SW] No pending items to sync');
+      return;
+    }
+
+    console.log(`[SW] Syncing ${pendingItems.length} pending items`);
+    
+    let synced = 0;
+    let failed = 0;
+
+    for (const item of pendingItems) {
+      try {
+        const success = await syncStoryItem(db, item);
+        if (success) {
+          synced++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
+        console.error('[SW] Error syncing item:', error);
+        failed++;
+      }
+    }
+
+    console.log(`[SW] Sync complete: ${synced} synced, ${failed} failed`);
+    
+    // Notify clients about sync completion
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'SYNC_COMPLETE',
+        synced,
+        failed
+      });
+    });
+  } catch (error) {
+    console.error('[SW] Background sync failed:', error);
+  }
+}
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('OurPathsDB', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function getAllQueueItems(db) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['offline_queue'], 'readonly');
+    const store = transaction.objectStore('offline_queue');
+    const index = store.index('by_status');
+    const request = index.getAll('pending');
+    
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function syncStoryItem(db, item) {
+  try {
+    // Convert Blob to File
+    const photoFile = new File([item.data.photo], item.data.photoName, {
+      type: item.data.photoType
+    });
+
+    // Create FormData
+    const formData = new FormData();
+    formData.append('description', item.data.description);
+    formData.append('photo', photoFile);
+    if (item.data.lat) formData.append('lat', item.data.lat);
+    if (item.data.lon) formData.append('lon', item.data.lon);
+
+    // Get token from clients
+    const clients = await self.clients.matchAll();
+    let token = null;
+    if (clients.length > 0) {
+      // Request token from client
+      const response = await new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = (event) => resolve(event.data);
+        clients[0].postMessage({ type: 'GET_TOKEN' }, [channel.port2]);
+      });
+      token = response.token;
+    }
+
+    // Submit to API
+    const endpoint = token 
+      ? 'https://story-api.dicoding.dev/v1/stories'
+      : 'https://story-api.dicoding.dev/v1/stories/guest';
+    
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    const apiResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+
+    const result = await apiResponse.json();
+
+    if (result.error === false) {
+      // Success - remove from queue
+      await removeFromQueue(db, item.id);
+      return true;
+    } else {
+      // API error - update status
+      await updateQueueItemStatus(db, item.id, 'failed', result.message);
+      return false;
+    }
+  } catch (error) {
+    // Network error - update status
+    await updateQueueItemStatus(db, item.id, 'failed', error.message);
+    return false;
+  }
+}
+
+function removeFromQueue(db, id) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['offline_queue'], 'readwrite');
+    const store = transaction.objectStore('offline_queue');
+    const request = store.delete(id);
+    
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function updateQueueItemStatus(db, id, status, error) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['offline_queue'], 'readwrite');
+    const store = transaction.objectStore('offline_queue');
+    const getRequest = store.get(id);
+    
+    getRequest.onsuccess = () => {
+      const item = getRequest.result;
+      if (item) {
+        item.status = status;
+        item.error = error;
+        item.attempts = (item.attempts || 0) + 1;
+        item.lastAttempt = new Date().toISOString();
+        
+        // Retry logic: mark as pending if attempts < 3
+        if (item.attempts < 3 && status === 'failed') {
+          item.status = 'pending';
+        }
+        
+        const putRequest = store.put(item);
+        putRequest.onsuccess = () => resolve();
+        putRequest.onerror = () => reject(putRequest.error);
+      } else {
+        resolve();
+      }
+    };
+    
+    getRequest.onerror = () => reject(getRequest.error);
+  });
 }
 
 // Message event - handle messages from clients

@@ -1,4 +1,5 @@
 import HomePresenter from '../../presenters/home-presenter.js';
+import favoritesManager from '../../data/favorites-manager.js';
 
 export default class HomePage {
   constructor() {
@@ -6,6 +7,7 @@ export default class HomePage {
     this.map = null;
     this.markers = [];
     this.backgroundMusic = null;
+    this.favoriteStates = new Map(); // Track favorite states
   }
 
   async render() {
@@ -421,6 +423,9 @@ export default class HomePage {
               </button>
             </div>
             ${story.lat && story.lon ? '<div class="location-badge"><span>📍</span></div>' : ''}
+            <button class="favorite-toggle-btn" data-story-id="${story.id}" title="Add to favorites">
+              <span class="favorite-icon">🤍</span>
+            </button>
           </div>
           <div class="story-card-content">
             <div class="story-card-header">
@@ -470,6 +475,9 @@ export default class HomePage {
         this.markers.push(marker);
       }
     });
+
+    // Setup favorite buttons after rendering
+    this.setupFavoriteButtons();
   }
 
   filterStories(filter) {
@@ -636,6 +644,88 @@ export default class HomePage {
 
     musicPlayer?.addEventListener('mouseleave', () => {
       musicPlayer.classList.remove('expanded');
+    });
+  }
+
+  // ==================== FAVORITES FUNCTIONALITY ====================
+
+  async setupFavoriteButtons() {
+    try {
+      // Load favorite states for all stories
+      const stories = this.presenter.getStories();
+      if (!stories || stories.length === 0) {
+        return;
+      }
+
+      for (const story of stories) {
+        try {
+          const isFav = await favoritesManager.isFavorite(story.id);
+          this.favoriteStates.set(story.id, isFav);
+        } catch (error) {
+          console.error('[HomePage] Failed to check favorite status:', story.id, error);
+          this.favoriteStates.set(story.id, false);
+        }
+      }
+
+      // Update UI
+      this.updateAllFavoriteButtons();
+
+      // Add event listeners to favorite buttons
+      document.querySelectorAll('.favorite-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const storyId = btn.dataset.storyId;
+          await this.handleFavoriteToggle(storyId, btn);
+        });
+      });
+    } catch (error) {
+      console.error('[HomePage] Failed to setup favorite buttons:', error);
+    }
+  }
+
+  async handleFavoriteToggle(storyId, button) {
+    try {
+      const isFavorite = this.favoriteStates.get(storyId) || false;
+      
+      if (isFavorite) {
+        // Remove from favorites
+        await favoritesManager.removeFromFavorites(storyId);
+        this.favoriteStates.set(storyId, false);
+        this.showSyncNotification('Removed from favorites', 'info');
+      } else {
+        // Add to favorites
+        const story = this.presenter.getStories().find(s => s.id === storyId);
+        if (story) {
+          await favoritesManager.addToFavorites(story);
+          this.favoriteStates.set(storyId, true);
+          this.showSyncNotification('Added to favorites ❤️', 'success');
+        }
+      }
+
+      // Update button UI
+      this.updateFavoriteButton(storyId, button);
+    } catch (error) {
+      console.error('[HomePage] Failed to toggle favorite:', error);
+      this.showSyncNotification('Failed to update favorite', 'error');
+    }
+  }
+
+  updateFavoriteButton(storyId, button) {
+    const isFavorite = this.favoriteStates.get(storyId) || false;
+    const icon = button.querySelector('.favorite-icon');
+    
+    if (icon) {
+      icon.textContent = isFavorite ? '❤️' : '🤍';
+    }
+    
+    button.title = isFavorite ? 'Remove from favorites' : 'Add to favorites';
+    button.classList.toggle('is-favorite', isFavorite);
+  }
+
+  updateAllFavoriteButtons() {
+    document.querySelectorAll('.favorite-toggle-btn').forEach(btn => {
+      const storyId = btn.dataset.storyId;
+      this.updateFavoriteButton(storyId, btn);
     });
   }
 }

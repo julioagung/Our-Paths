@@ -5,6 +5,7 @@ import LoginPage from '../pages/login/login-page';
 import RegisterPage from '../pages/register/register-page';
 import NotificationPage from '../pages/notification/notification-page';
 import OfflinePage from '../pages/offline/offline-page';
+import FavoritesPage from '../pages/favorites/favorites-page';
 
 const routes = {
   '#/': new HomePage(),
@@ -14,6 +15,7 @@ const routes = {
   '#/register': new RegisterPage(),
   '#/notifications': new NotificationPage(),
   '#/offline': new OfflinePage(),
+  '#/favorites': new FavoritesPage(),
 };
 
 export default routes;

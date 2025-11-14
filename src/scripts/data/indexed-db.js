@@ -1,365 +1,628 @@
-// IndexedDB Manager for Story App
-// Handles offline storage and synchronization
-
-const DB_NAME = 'StoryAppDB';
-const DB_VERSION = 1;
-const STORES = {
-  STORIES: 'stories',
-  PENDING_STORIES: 'pendingStories',
-  SYNC_QUEUE: 'syncQueue'
-};
+// IndexedDB Manager for Our Paths Application
+// Handles all IndexedDB operations for favorites, offline queue, and sync status
 
 class IndexedDBManager {
   constructor() {
     this.db = null;
+    this.DB_NAME = 'OurPathsDB';
+    this.DB_VERSION = 1;
+    
+    // Object store names
+    this.STORES = {
+      FAVORITES: 'favorites',
+      OFFLINE_QUEUE: 'offline_queue',
+      SYNC_STATUS: 'sync_status'
+    };
   }
 
-  // Initialize database
+  /**
+   * Initialize IndexedDB database
+   * Creates object stores and indexes if they don't exist
+   * @returns {Promise<void>}
+   */
   async init() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to open database:', request.error);
+        reject(request.error);
+      };
+
       request.onsuccess = () => {
         this.db = request.result;
-        resolve(this.db);
+        console.log('[IndexedDB] Database opened successfully');
+        resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        console.log('[IndexedDB] Upgrading database schema...');
 
-        // Stories store - for caching API data
-        if (!db.objectStoreNames.contains(STORES.STORIES)) {
-          const storiesStore = db.createObjectStore(STORES.STORIES, { keyPath: 'id' });
-          storiesStore.createIndex('createdAt', 'createdAt', { unique: false });
-          storiesStore.createIndex('name', 'name', { unique: false });
-        }
-
-        // Pending stories store - for offline created stories
-        if (!db.objectStoreNames.contains(STORES.PENDING_STORIES)) {
-          const pendingStore = db.createObjectStore(STORES.PENDING_STORIES, { 
-            keyPath: 'tempId', 
-            autoIncrement: true 
+        // Create Favorites store
+        if (!db.objectStoreNames.contains(this.STORES.FAVORITES)) {
+          const favStore = db.createObjectStore(this.STORES.FAVORITES, { 
+            keyPath: 'id' 
           });
-          pendingStore.createIndex('timestamp', 'timestamp', { unique: false });
+          
+          // Create indexes for efficient querying
+          favStore.createIndex('by_date', 'favoritedAt', { unique: false });
+          favStore.createIndex('by_name', 'name', { unique: false });
+          
+          console.log('[IndexedDB] Created favorites store with indexes');
         }
 
-        // Sync queue store - for tracking sync operations
-        if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
-          const syncStore = db.createObjectStore(STORES.SYNC_QUEUE, { 
+        // Create Offline Queue store
+        if (!db.objectStoreNames.contains(this.STORES.OFFLINE_QUEUE)) {
+          const queueStore = db.createObjectStore(this.STORES.OFFLINE_QUEUE, { 
             keyPath: 'id', 
             autoIncrement: true 
           });
-          syncStore.createIndex('status', 'status', { unique: false });
-          syncStore.createIndex('timestamp', 'timestamp', { unique: false });
-        }
-      };
-    });
-  }
-
-  // === STORIES CRUD OPERATIONS ===
-
-  // Create/Update story in IndexedDB
-  async saveStory(story) {
-    const transaction = this.db.transaction([STORES.STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.put(story);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Save multiple stories (bulk operation)
-  async saveStories(stories) {
-    const transaction = this.db.transaction([STORES.STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    const promises = stories.map(story => {
-      return new Promise((resolve, reject) => {
-        const request = store.put(story);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    });
-
-    return Promise.all(promises);
-  }
-
-  // Read all stories from IndexedDB
-  async getAllStories() {
-    const transaction = this.db.transaction([STORES.STORIES], 'readonly');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Read single story by ID
-  async getStory(id) {
-    const transaction = this.db.transaction([STORES.STORIES], 'readonly');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.get(id);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Delete story from IndexedDB
-  async deleteStory(id) {
-    const transaction = this.db.transaction([STORES.STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.delete(id);
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Clear all stories
-  async clearAllStories() {
-    const transaction = this.db.transaction([STORES.STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.clear();
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // === PENDING STORIES (OFFLINE) ===
-
-  // Save story created while offline
-  async savePendingStory(storyData) {
-    const transaction = this.db.transaction([STORES.PENDING_STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.PENDING_STORIES);
-    
-    const pendingStory = {
-      ...storyData,
-      timestamp: Date.now(),
-      status: 'pending'
-    };
-
-    return new Promise((resolve, reject) => {
-      const request = store.add(pendingStory);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Get all pending stories
-  async getPendingStories() {
-    const transaction = this.db.transaction([STORES.PENDING_STORIES], 'readonly');
-    const store = transaction.objectStore(STORES.PENDING_STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Delete pending story after successful sync
-  async deletePendingStory(tempId) {
-    const transaction = this.db.transaction([STORES.PENDING_STORIES], 'readwrite');
-    const store = transaction.objectStore(STORES.PENDING_STORIES);
-    
-    return new Promise((resolve, reject) => {
-      const request = store.delete(tempId);
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // === SYNC QUEUE OPERATIONS ===
-
-  // Add sync operation to queue
-  async addToSyncQueue(operation) {
-    const transaction = this.db.transaction([STORES.SYNC_QUEUE], 'readwrite');
-    const store = transaction.objectStore(STORES.SYNC_QUEUE);
-    
-    const syncItem = {
-      ...operation,
-      timestamp: Date.now(),
-      status: 'pending',
-      retryCount: 0
-    };
-
-    return new Promise((resolve, reject) => {
-      const request = store.add(syncItem);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Get pending sync operations
-  async getPendingSyncOperations() {
-    const transaction = this.db.transaction([STORES.SYNC_QUEUE], 'readonly');
-    const store = transaction.objectStore(STORES.SYNC_QUEUE);
-    const index = store.index('status');
-    
-    return new Promise((resolve, reject) => {
-      const request = index.getAll('pending');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  // Update sync operation status
-  async updateSyncStatus(id, status, error = null) {
-    const transaction = this.db.transaction([STORES.SYNC_QUEUE], 'readwrite');
-    const store = transaction.objectStore(STORES.SYNC_QUEUE);
-    
-    return new Promise((resolve, reject) => {
-      const getRequest = store.get(id);
-      
-      getRequest.onsuccess = () => {
-        const item = getRequest.result;
-        if (item) {
-          item.status = status;
-          item.lastAttempt = Date.now();
-          if (error) item.error = error;
-          if (status === 'failed') item.retryCount = (item.retryCount || 0) + 1;
           
-          const updateRequest = store.put(item);
-          updateRequest.onsuccess = () => resolve(true);
-          updateRequest.onerror = () => reject(updateRequest.error);
-        } else {
-          reject(new Error('Sync item not found'));
+          // Create indexes for filtering
+          queueStore.createIndex('by_status', 'status', { unique: false });
+          queueStore.createIndex('by_date', 'createdAt', { unique: false });
+          
+          console.log('[IndexedDB] Created offline_queue store with indexes');
+        }
+
+        // Create Sync Status store
+        if (!db.objectStoreNames.contains(this.STORES.SYNC_STATUS)) {
+          db.createObjectStore(this.STORES.SYNC_STATUS, { 
+            keyPath: 'key' 
+          });
+          
+          console.log('[IndexedDB] Created sync_status store');
         }
       };
-      
-      getRequest.onerror = () => reject(getRequest.error);
     });
   }
 
-  // Delete completed sync operation
-  async deleteSyncOperation(id) {
-    const transaction = this.db.transaction([STORES.SYNC_QUEUE], 'readwrite');
-    const store = transaction.objectStore(STORES.SYNC_QUEUE);
+  /**
+   * Delete the entire database
+   * @returns {Promise<void>}
+   */
+  async deleteDatabase() {
+    return new Promise((resolve, reject) => {
+      if (this.db) {
+        this.db.close();
+        this.db = null;
+      }
+
+      const request = indexedDB.deleteDatabase(this.DB_NAME);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Database deleted successfully');
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to delete database:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Check if database is initialized
+   * @returns {boolean}
+   */
+  isInitialized() {
+    return this.db !== null;
+  }
+
+  /**
+   * Ensure database is initialized before operations
+   * @private
+   */
+  _ensureInitialized() {
+    if (!this.isInitialized()) {
+      throw new Error('IndexedDB not initialized. Call init() first.');
+    }
+  }
+
+  // ==================== FAVORITES OPERATIONS ====================
+
+  /**
+   * Add a story to favorites
+   * @param {Object} story - Story object to add
+   * @returns {Promise<string>} Story ID
+   */
+  async addFavorite(story) {
+    this._ensureInitialized();
     
     return new Promise((resolve, reject) => {
-      const request = store.delete(id);
-      request.onsuccess = () => resolve(true);
-      request.onerror = () => reject(request.error);
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readwrite');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      
+      // Add favoritedAt timestamp
+      const favoriteStory = {
+        ...story,
+        favoritedAt: new Date().toISOString()
+      };
+      
+      const request = store.put(favoriteStory);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Added to favorites:', story.id);
+        resolve(story.id);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to add favorite:', request.error);
+        reject(request.error);
+      };
     });
   }
 
-  // === SEARCH & FILTER OPERATIONS ===
-
-  // Search stories by name or description
-  async searchStories(searchTerm) {
-    const allStories = await this.getAllStories();
-    const term = searchTerm.toLowerCase();
+  /**
+   * Get a single favorite by ID
+   * @param {string} id - Story ID
+   * @returns {Promise<Object|null>} Story object or null if not found
+   */
+  async getFavorite(id) {
+    this._ensureInitialized();
     
-    return allStories.filter(story => 
-      story.name.toLowerCase().includes(term) ||
-      story.description.toLowerCase().includes(term)
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readonly');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      const request = store.get(id);
+      
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get favorite:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get all favorites
+   * @returns {Promise<Array>} Array of favorite stories
+   */
+  async getAllFavorites() {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readonly');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Retrieved all favorites:', request.result.length);
+        resolve(request.result);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get all favorites:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Remove a story from favorites
+   * @param {string} id - Story ID
+   * @returns {Promise<void>}
+   */
+  async removeFavorite(id) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readwrite');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      const request = store.delete(id);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Removed from favorites:', id);
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to remove favorite:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Check if a story is in favorites
+   * @param {string} id - Story ID
+   * @returns {Promise<boolean>}
+   */
+  async isFavorite(id) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readonly');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      const request = store.count(id);
+      
+      request.onsuccess = () => {
+        resolve(request.result > 0);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to check favorite:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Search favorites by query string
+   * @param {string} query - Search query
+   * @returns {Promise<Array>} Filtered favorites
+   */
+  async searchFavorites(query) {
+    this._ensureInitialized();
+    
+    const allFavorites = await this.getAllFavorites();
+    const lowerQuery = query.toLowerCase();
+    
+    return allFavorites.filter(story => 
+      story.name.toLowerCase().includes(lowerQuery) ||
+      story.description.toLowerCase().includes(lowerQuery)
     );
   }
 
-  // Filter stories by location availability
-  async filterStoriesByLocation(hasLocation) {
-    const allStories = await this.getAllStories();
+  /**
+   * Sort favorites by specified criteria
+   * @param {string} sortBy - Sort criteria: 'newest', 'oldest', 'name'
+   * @returns {Promise<Array>} Sorted favorites
+   */
+  async sortFavorites(sortBy = 'newest') {
+    this._ensureInitialized();
     
-    if (hasLocation === 'with-location') {
-      return allStories.filter(story => story.lat && story.lon);
-    } else if (hasLocation === 'no-location') {
-      return allStories.filter(story => !story.lat || !story.lon);
-    }
-    
-    return allStories;
-  }
-
-  // Sort stories
-  async sortStories(sortBy = 'newest') {
-    const allStories = await this.getAllStories();
+    const allFavorites = await this.getAllFavorites();
     
     switch (sortBy) {
       case 'newest':
-        return allStories.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return allFavorites.sort((a, b) => 
+          new Date(b.favoritedAt) - new Date(a.favoritedAt)
+        );
+      
       case 'oldest':
-        return allStories.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        return allFavorites.sort((a, b) => 
+          new Date(a.favoritedAt) - new Date(b.favoritedAt)
+        );
+      
       case 'name':
-        return allStories.sort((a, b) => a.name.localeCompare(b.name));
+        return allFavorites.sort((a, b) => 
+          a.name.localeCompare(b.name)
+        );
+      
       default:
-        return allStories;
+        return allFavorites;
     }
   }
 
-  // Combined filter, search, and sort
-  async queryStories({ searchTerm = '', locationFilter = 'all', sortBy = 'newest' }) {
-    let stories = await this.getAllStories();
+  // ==================== OFFLINE QUEUE OPERATIONS ====================
 
-    // Apply search
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      stories = stories.filter(story => 
-        story.name.toLowerCase().includes(term) ||
-        story.description.toLowerCase().includes(term)
-      );
-    }
-
-    // Apply location filter
-    if (locationFilter === 'with-location') {
-      stories = stories.filter(story => story.lat && story.lon);
-    } else if (locationFilter === 'no-location') {
-      stories = stories.filter(story => !story.lat || !story.lon);
-    }
-
-    // Apply sort
-    switch (sortBy) {
-      case 'newest':
-        stories.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        break;
-      case 'oldest':
-        stories.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        break;
-      case 'name':
-        stories.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-    }
-
-    return stories;
+  /**
+   * Add an operation to the offline queue
+   * @param {Object} operation - Operation object
+   * @returns {Promise<number>} Operation ID
+   */
+  async addToQueue(operation) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readwrite');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      
+      const queueItem = {
+        ...operation,
+        createdAt: operation.createdAt || new Date().toISOString(),
+        status: operation.status || 'pending',
+        attempts: operation.attempts || 0
+      };
+      
+      const request = store.add(queueItem);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Added to offline queue:', request.result);
+        resolve(request.result);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to add to queue:', request.error);
+        reject(request.error);
+      };
+    });
   }
 
-  // === UTILITY METHODS ===
-
-  // Get database statistics
-  async getStats() {
-    const stories = await this.getAllStories();
-    const pendingStories = await this.getPendingStories();
-    const syncQueue = await this.getPendingSyncOperations();
-
-    return {
-      totalStories: stories.length,
-      storiesWithLocation: stories.filter(s => s.lat && s.lon).length,
-      pendingStories: pendingStories.length,
-      pendingSyncOperations: syncQueue.length,
-      lastUpdated: stories.length > 0 
-        ? Math.max(...stories.map(s => new Date(s.createdAt).getTime()))
-        : null
-    };
+  /**
+   * Get a single queue item by ID
+   * @param {number} id - Queue item ID
+   * @returns {Promise<Object|null>} Queue item or null
+   */
+  async getQueueItem(id) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readonly');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      const request = store.get(id);
+      
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get queue item:', request.error);
+        reject(request.error);
+      };
+    });
   }
 
-  // Close database connection
-  close() {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
+  /**
+   * Get all items from offline queue
+   * @returns {Promise<Array>} Array of queue items
+   */
+  async getAllQueueItems() {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readonly');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Retrieved queue items:', request.result.length);
+        resolve(request.result);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get queue items:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Remove an item from offline queue
+   * @param {number} id - Queue item ID
+   * @returns {Promise<void>}
+   */
+  async removeFromQueue(id) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readwrite');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      const request = store.delete(id);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Removed from queue:', id);
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to remove from queue:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Update a queue item
+   * @param {Object} operation - Updated operation object (must include id)
+   * @returns {Promise<void>}
+   */
+  async updateQueueItem(operation) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readwrite');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      
+      const request = store.put(operation);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Updated queue item:', operation.id);
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to update queue item:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Clear all items from offline queue
+   * @returns {Promise<void>}
+   */
+  async clearQueue() {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readwrite');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      const request = store.clear();
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Cleared offline queue');
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to clear queue:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get queue items by status
+   * @param {string} status - Status to filter by ('pending', 'syncing', 'failed')
+   * @returns {Promise<Array>} Filtered queue items
+   */
+  async getQueueItemsByStatus(status) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.OFFLINE_QUEUE], 'readonly');
+      const store = transaction.objectStore(this.STORES.OFFLINE_QUEUE);
+      const index = store.index('by_status');
+      const request = index.getAll(status);
+      
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get queue items by status:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  // ==================== SYNC STATUS OPERATIONS ====================
+
+  /**
+   * Update sync status
+   * @param {Object} status - Sync status object
+   * @returns {Promise<void>}
+   */
+  async updateSyncStatus(status) {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.SYNC_STATUS], 'readwrite');
+      const store = transaction.objectStore(this.STORES.SYNC_STATUS);
+      
+      const statusData = {
+        key: 'main',
+        ...status,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      const request = store.put(statusData);
+      
+      request.onsuccess = () => {
+        console.log('[IndexedDB] Updated sync status');
+        resolve();
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to update sync status:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get current sync status
+   * @returns {Promise<Object>} Sync status object
+   */
+  async getSyncStatus() {
+    this._ensureInitialized();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.STORES.SYNC_STATUS], 'readonly');
+      const store = transaction.objectStore(this.STORES.SYNC_STATUS);
+      const request = store.get('main');
+      
+      request.onsuccess = () => {
+        const defaultStatus = {
+          key: 'main',
+          lastSync: null,
+          pendingStories: 0,
+          failedStories: 0,
+          isOnline: navigator.onLine,
+          isSyncing: false,
+          autoSyncEnabled: true
+        };
+        
+        resolve(request.result || defaultStatus);
+      };
+      
+      request.onerror = () => {
+        console.error('[IndexedDB] Failed to get sync status:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get count of pending operations
+   * @returns {Promise<number>} Count of pending items
+   */
+  async getPendingCount() {
+    this._ensureInitialized();
+    
+    const pendingItems = await this.getQueueItemsByStatus('pending');
+    return pendingItems.length;
+  }
+
+  /**
+   * Get count of failed operations
+   * @returns {Promise<number>} Count of failed items
+   */
+  async getFailedCount() {
+    this._ensureInitialized();
+    
+    const failedItems = await this.getQueueItemsByStatus('failed');
+    return failedItems.length;
+  }
+
+  // ==================== STORIES CACHE OPERATIONS ====================
+
+  /**
+   * Save stories to cache
+   * @param {Array} stories - Array of stories
+   * @returns {Promise<void>}
+   */
+  async saveStories(stories) {
+    this._ensureInitialized();
+    
+    try {
+      // Use favorites store for caching (reuse existing store)
+      const transaction = this.db.transaction([this.STORES.FAVORITES], 'readwrite');
+      const store = transaction.objectStore(this.STORES.FAVORITES);
+      
+      for (const story of stories) {
+        await new Promise((resolve, reject) => {
+          const request = store.put({
+            ...story,
+            cachedAt: new Date().toISOString()
+          });
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+      }
+      
+      console.log('[IndexedDB] Cached', stories.length, 'stories');
+    } catch (error) {
+      console.error('[IndexedDB] Failed to cache stories:', error);
     }
+  }
+
+  /**
+   * Get all cached stories
+   * @returns {Promise<Array>}
+   */
+  async getAllStories() {
+    // Alias for getAllFavorites for backward compatibility
+    return await this.getAllFavorites();
+  }
+
+  /**
+   * Clear all cached stories
+   * @returns {Promise<void>}
+   */
+  async clearAllStories() {
+    // Don't clear - we want to keep favorites
+    // This is just for compatibility
+    console.log('[IndexedDB] clearAllStories called - keeping favorites');
   }
 }
 
-// Create singleton instance
-const dbManager = new IndexedDBManager();
-
-export default dbManager;
+// Export singleton instance
+export default new IndexedDBManager();

@@ -154,7 +154,8 @@ class App {
       '/register': 'Register - Our Paths',
       '/about': 'About - Our Paths',
       '/notifications': 'Notifications - Our Paths',
-      '/offline': 'Offline Data - Our Paths'
+      '/offline': 'Offline Data - Our Paths',
+      '/favorites': 'Favorites - Our Paths'
     };
     document.title = pageTitles[url] || 'Our Paths';
 
@@ -171,6 +172,7 @@ class App {
     const navItems = [
       { href: '#/', text: 'Home' },
       { href: '#/add', text: 'Add Story' },
+      { href: '#/favorites', text: 'Favorites' },
       { href: '#/offline', text: 'Offline Data' },
       { href: '#/notifications', text: 'Notifications' },
       { href: '#/about', text: 'About' }
